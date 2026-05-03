@@ -1009,49 +1009,99 @@ function tog(id){
   if(body)body.style.display=sc.classList.contains('closed')?'none':'';
 }
 
+// ============================================================
+// GITHUB DATA SOURCE CONFIG
+// Ganti GITHUB_USER dan GITHUB_REPO sesuai akun Anda
+// ============================================================
+const GITHUB_USER = 'USERNAME';
+const GITHUB_REPO = 'enigma-data';
+const GITHUB_BRANCH = 'main';
+
+function getGithubUrl(pasaran){
+  return `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${pasaran}.json`;
+}
+
+const PASARAN_NAME={
+  sgp_pools:'SGP Pools',sgp_lotto:'SGP Lotto',
+  hk_pools:'HK Pools',hk_lotto:'HK Lotto',
+  sdy_pools:'SDY Pools',sdy_lotto:'SDY Lotto',
+  china_pools:'China Pools',china_lotto:'China Lotto',
+  taiwan_pools:'Taiwan Pools',taiwan_lotto:'Taiwan Lotto',
+  cambodia_pools:'Cambodia Pools',cambodia_lotto:'Cambodia Lotto'
+};
+
 // RUN AUTO
-function runAuto(){
+async function runAuto(){
   const lEl=document.getElementById('loading-auto'),rEl=document.getElementById('results-auto');
   lEl.classList.add('show');rEl.classList.remove('show');rEl.innerHTML='';
   const pasaran=document.getElementById('pasaran').value;
   const periode=parseInt(document.getElementById('periode').value);
-  const days=periode*30;
+  const maxResults=periode*30;
+  const pName=PASARAN_NAME[pasaran]||pasaran;
 
-  // Cek stored data dari Manual
-  const stored=loadStored(pasaran);
+  let data=[];
+  let sumber='';
+  let isError=false;
 
-  setTimeout(()=>{
-    let data;
-    if(stored.length>=7){
-      // Pakai data nyata dari Manual storage
-      const limitedStored=stored.slice(0,days);
-      data=limitedStored.map((num,i)=>{
+  try{
+    const url=getGithubUrl(pasaran);
+    const res=await fetch(url);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const json=await res.json();
+    const results=(json.results||[]).slice(0,maxResults);
+    if(results.length===0) throw new Error('Data kosong');
+
+    data=results.map((num,i)=>{
+      const d=new Date();
+      if(json.dates&&json.dates[i]) return{date:new Date(json.dates[i]),number:String(num)};
+      d.setDate(d.getDate()-i);
+      return{date:d,number:String(num)};
+    });
+
+    const updatedInfo=json.updated?' · Update: '+json.updated:'';
+    sumber=`✅ Data GitHub · ${pName} · ${data.length} result${updatedInfo}`;
+
+  }catch(e){
+    isError=true;
+    console.warn('GitHub fetch gagal:',e.message);
+
+    // Fallback ke localStorage
+    const stored=loadStored(pasaran);
+    if(stored.length>=3){
+      data=stored.slice(0,maxResults).map((num,i)=>{
         const d=new Date();d.setDate(d.getDate()-i);
         return{date:d,number:num};
       });
+      sumber=`⚠️ GitHub tidak tersedia · Pakai data lokal · ${pName} · ${data.length} result`;
     } else {
-      // Fallback ke dummy
-      data=genDummy(days);
+      // Tidak ada data sama sekali — tampilkan pesan error
+      lEl.classList.remove('show');
+      rEl.innerHTML=`
+        <div style="background:rgba(255,77,109,.08);border:1px solid rgba(255,77,109,.3);border-radius:10px;padding:28px;text-align:center;">
+          <div style="font-size:36px;margin-bottom:12px;">📭</div>
+          <div style="font-family:'Cinzel',serif;font-size:13px;color:var(--red);letter-spacing:3px;margin-bottom:10px;">DATA BELUM TERSEDIA</div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--muted);line-height:2;">
+            File <span style="color:var(--gold2)">${pasaran}.json</span> belum ada di GitHub.<br>
+            Repo: <span style="color:var(--cyan)">${GITHUB_USER}/${GITHUB_REPO}</span>
+          </div>
+          <div style="margin-top:14px;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--muted);padding:12px;background:var(--bg3);border-radius:6px;text-align:left;line-height:2;">
+            Buat file <span style="color:var(--gold2)">${pasaran}.json</span> dengan format:<br>
+            <span style="color:var(--cyan)">{"pasaran":"${pName}","updated":"2026-05-03","results":["1234","5678",...]}</span>
+          </div>
+        </div>`;
+      rEl.classList.add('show');
+      return;
     }
-    const a=analyze(data);
-    lEl.classList.remove('show');
-    renderAuto(a,'results-auto');
+  }
 
-    // Tampilkan badge sumber data
-    if(stored.length>=7){
-      const badge=document.createElement('div');
-      badge.style.cssText='margin-bottom:12px;padding:8px 14px;background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.2);border-radius:8px;font-family:Share Tech Mono,monospace;font-size:11px;color:var(--cyan);';
-      const pName1={sgp_pools:'SGP Pools',sgp_lotto:'SGP Lotto',hk_pools:'HK Pools',hk_lotto:'HK Lotto',sdy_pools:'SDY Pools',sdy_lotto:'SDY Lotto',china_pools:'China Pools',china_lotto:'China Lotto',taiwan_pools:'Taiwan Pools',taiwan_lotto:'Taiwan Lotto',cambodia_pools:'Cambodia Pools',cambodia_lotto:'Cambodia Lotto'}[pasaran]||pasaran;
-      badge.textContent='✅ Menggunakan '+data.length+' data nyata dari Manual ('+pName1+')';
-      rEl.insertBefore(badge,rEl.firstChild);
-    } else {
-      const badge=document.createElement('div');
-      badge.style.cssText='margin-bottom:12px;padding:8px 14px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);border-radius:8px;font-family:Share Tech Mono,monospace;font-size:11px;color:var(--muted);';
-      const pName2={sgp_pools:'SGP Pools',sgp_lotto:'SGP Lotto',hk_pools:'HK Pools',hk_lotto:'HK Lotto',sdy_pools:'SDY Pools',sdy_lotto:'SDY Lotto',china_pools:'China Pools',china_lotto:'China Lotto',taiwan_pools:'Taiwan Pools',taiwan_lotto:'Taiwan Lotto',cambodia_pools:'Cambodia Pools',cambodia_lotto:'Cambodia Lotto'}[pasaran]||pasaran;
-      badge.textContent='⚠️ Data dummy · belum ada data Manual '+pName2+' tersimpan (min 7 result)';
-      rEl.insertBefore(badge,rEl.firstChild);
-    }
-  },1200);
+  const a=analyze(data);
+  lEl.classList.remove('show');
+  renderAuto(a,'results-auto');
+
+  const badge=document.createElement('div');
+  badge.style.cssText=`margin-bottom:12px;padding:8px 14px;background:${isError?'rgba(201,168,76,.06)':'rgba(0,229,255,.08)'};border:1px solid ${isError?'rgba(201,168,76,.2)':'rgba(0,229,255,.2)'};border-radius:8px;font-family:'Share Tech Mono',monospace;font-size:11px;color:${isError?'var(--muted)':'var(--cyan)'};`;
+  badge.textContent=sumber;
+  rEl.insertBefore(badge,rEl.firstChild);
 }
 
 // MANUAL
